@@ -87,9 +87,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("curl", dep_curl.module("curl"));
     exe.root_module.link_libc = true;
 
-    exe.root_module.addIncludePath(b.path("vendor/lexbor/source"));
-    exe.root_module.addLibraryPath(b.path("vendor/lexbor"));
-    exe.root_module.linkSystemLibrary("lexbor", .{});
+    exe.root_module.addIncludePath(b.path("vendor/lexbor/source")); // for @cImport
+    exe.root_module.linkLibrary(lexbor(b, target, optimize));
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
@@ -161,4 +160,48 @@ pub fn build(b: *std.Build) void {
     //
     // Lastly, the Zig build system is relatively simple and self-contained,
     // and reading its source code will allow you to master it.
+}
+
+fn lexborCFiles(b: *std.Build, port: []const u8) []const []const u8 {
+    const gpa = b.allocator;
+    const io = b.graph.io;
+    var files: std.ArrayList([]const u8) = .empty;
+
+    var dir = b.build_root.handle.openDir(io, "vendor/lexbor/source", .{ .iterate = true }) catch
+        @panic("vendor/lexbor missing; run: git submodule update --init");
+    defer dir.close(io);
+
+    var walker = dir.walk(gpa) catch @panic("OOM");
+    defer walker.deinit();
+    while (walker.next(io) catch @panic("walk failed")) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.basename, ".c")) continue;
+
+        // lexbor keeps platform ports under ports/<port>/; include only the
+        // one matching the target OS, like its CMake build does.
+        const ports = "lexbor/ports/";
+        if (std.mem.startsWith(u8, entry.path, ports)) {
+            const rest = entry.path[ports.len..];
+            const slash = std.mem.indexOfScalar(u8, rest, '/') orelse continue;
+            if (!std.mem.eql(u8, rest[0..slash], port)) continue;
+        }
+
+        files.append(gpa, gpa.dupe(u8, entry.path) catch @panic("OOM")) catch @panic("OOM");
+    }
+    return files.toOwnedSlice(gpa) catch @panic("OOM");
+}
+
+fn lexbor(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step.Compile {
+    const port: []const u8 = if (target.result.os.tag == .windows) "windows_nt" else "posix";
+    const mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    mod.addIncludePath(b.path("vendor/lexbor/source"));
+    mod.addCSourceFiles(.{
+        .root = b.path("vendor/lexbor/source"),
+        .files = lexborCFiles(b, port),
+    });
+    return b.addLibrary(.{ .name = "lexbor", .root_module = mod }); // .linkage = .static default
 }

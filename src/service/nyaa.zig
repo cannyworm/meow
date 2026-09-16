@@ -4,12 +4,13 @@ const html = @import("../html/html.zig");
 const c = html.c;
 
 pub const SearchEntry = struct {
-    category: []u8 = "",
-    name: []u8 = "",
-    torrent_link: []u8,
-    magnet_link: []u8 = "",
-    size: []u8 = "",
-    date: []u8,
+    category: []const u8 = undefined,
+    name: []const u8 = undefined,
+    url: []const u8 = undefined,
+    torrent_link: []const u8 = undefined,
+    magnet_link: []const u8 = undefined,
+    size: []const u8 = undefined,
+    date: []const u8 = undefined,
     seeder: u32 = 0,
     leecher: u32 = 0,
     download: u32 = 0,
@@ -41,6 +42,25 @@ pub fn find_callback(node: [*c]c.struct_lxb_dom_node, spec: c.lxb_css_selector_s
     return 0;
 }
 
+fn anchorHref(elementPtr: [*c]c.struct_lxb_dom_node) ?[]const u8 {
+    const element = elementPtr.*;
+    std.debug.print("{d} {d}\n", .{ element.type, element.local_name });
+    if (element.type != c.LXB_DOM_NODE_TYPE_ELEMENT) return null;
+    if (element.local_name != c.LXB_TAG_A) return null;
+
+    const a = c.lxb_dom_interface_element(elementPtr);
+    return html.dom_element_get_attribute(a, "href");
+}
+
+fn anchorTitle(elementPtr: [*c]c.struct_lxb_dom_node) ?[]const u8 {
+    const element = elementPtr.*;
+    if (element.type != c.LXB_DOM_NODE_TYPE_ELEMENT) return null;
+    if (element.local_name != c.LXB_TAG_A) return null;
+
+    const a = c.lxb_dom_interface_element(elementPtr);
+    return html.dom_element_get_attribute(a, "title");
+}
+
 pub fn search(io: std.Io, allocator: std.mem.Allocator) !void {
     const raw_search = try searchRaw(io, allocator);
 
@@ -67,6 +87,10 @@ pub fn search(io: std.Io, allocator: std.mem.Allocator) !void {
 
     try html.ok(c.lxb_selectors_find(selectors, @ptrCast(document.handle), list, find_callback, @ptrCast(&ctx)), error.lxbSelectorsFindFail);
 
+    // var result: std.ArrayList(SearchEntry) = .initCapacity(allocator, 20);
+
+    const as = c.lxb_dom_collection_create(document.handle);
+
     for (ctx.list.items) |node| {
         const tds = c.lxb_dom_collection_create(node.*.owner_document);
         _ = c.lxb_dom_collection_init(tds, 16);
@@ -82,28 +106,14 @@ pub fn search(io: std.Io, allocator: std.mem.Allocator) !void {
             std.debug.print("column_size > 7; warn\n", .{});
         }
 
+        // var entry: SearchEntry = .{};
+
         const td_category = c.lxb_dom_collection_element(tds, 0);
-        const td_nyaa_page = c.lxb_dom_collection_element(tds, 1);
-        const td_torrent = c.lxb_dom_collection_element(tds, 2);
-        const td_size = c.lxb_dom_collection_element(tds, 3);
-        const td_timestamp = c.lxb_dom_collection_element(tds, 4);
-        const td_seeder = c.lxb_dom_collection_element(tds, 5);
-        const td_leecher = c.lxb_dom_collection_element(tds, 6);
-        const td_download = c.lxb_dom_collection_element(tds, 7);
-
-        for (0..c.lxb_dom_collection_length(tds)) |idx| {
-            const td = c.lxb_dom_collection_element(tds, idx);
-
-            std.debug.print("td {d}:\n", .{idx});
-            var child: [*c]c.struct_lxb_dom_node = td.*.node.first_child;
-            while (child != null) : (child = child.*.next) {
-                if (child.*.type != c.LXB_DOM_NODE_TYPE_ELEMENT) continue;
-                if (child.*.local_name != c.LXB_TAG_A) continue;
-
-                const a = c.lxb_dom_interface_element(child);
-                const href = html.dom_element_get_attribute(a, "href");
-                std.debug.print("  href: {s}\n", .{href orelse "null"});
-            }
+        _ = c.lxb_dom_collection_init(as, 16);
+        _ = c.lxb_dom_elements_by_tag_name(c.lxb_dom_interface_element(td_category), as, "a", 1);
+        for (0..c.lxb_dom_collection_length(as)) |idx| {
+            const a = c.lxb_dom_collection_element(as, idx);
+            std.debug.print("a {d}: {s}\n", .{ idx, html.dom_element_get_attribute(a, "href") orelse "null" });
         }
     }
 }
