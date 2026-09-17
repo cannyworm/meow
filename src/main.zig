@@ -22,5 +22,12 @@ pub fn main(init: std.process.Init) !void {
     // In order to do I/O operations need an `Io` instance.
     const io = init.io;
 
-    try nyaa.search(io, arena);
+    const entries = try nyaa.search(io, arena);
+    for (entries) |entry| {
+        std.debug.print("{s} | {s} | {s} | size {s} | date {s} | S {d} L {d} D {d}\n  torrent: {s}\n  magnet: {s}\n", .{
+            nyaa.categoryLabel(entry.category), entry.name,  entry.url,    entry.size,
+            entry.date,                         entry.seeder, entry.leecher, entry.download,
+            entry.torrent_link, entry.magnet_link,
+        });
+    }
 }

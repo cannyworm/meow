@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const c = @cImport({
     {
         @cInclude("lexbor/html/html.h");
@@ -11,43 +13,6 @@ pub fn ok(status: c_uint, err: ?anyerror) !void {
     return;
 }
 
-pub fn MakeProxy(
-    HandleType: type,
-    //
-    fnCreate: fn () callconv(.c) [*c]HandleType,
-    fnInit: ?fn ([*c]HandleType) callconv(.c) c.lxb_status_t,
-    fnDeinit: fn ([*c]HandleType) callconv(.c) [*c]HandleType,
-    //
-) type {
-    return struct {
-        handle: [*c]HandleType = null,
-        pub fn create() !@This() {
-            const handle = fnCreate();
-            if (handle == null) return error.lxbCreateFail;
-            return .{ .handle = handle };
-        }
-        pub fn init(self: @This()) !void {
-            if (fnInit == null) return;
-
-            return try ok(fnInit(self.handle), error.lxbInitFail);
-        }
-
-        pub fn createInit() !@This() {
-            var this = try @This().create();
-            try this.init();
-            return this;
-        }
-
-        pub fn deinit(self: @This()) void {
-            _ = fnDeinit(self.handle);
-        }
-    };
-}
-
-pub const HTMLDocument = MakeProxy(c.struct_lxb_html_document, c.lxb_html_document_create, null, c.lxb_html_document_destroy);
-// pub const CSSParser = MakeProxy(c.struct_lxb_css_parser, c.lxb_css_parser_create, c.lxb_css_parser_init, c.lxb_css_parser_destroy);
-// pub const Selectors = MakeProxy(c.struct_lxb_selectors, c.lxb_selectors_create, c.lxb_selectors_init, c.lxb_selectors_destroy);
-
 pub fn dom_element_get_attribute(
     element: [*c]c.struct_lxb_dom_element,
     qualified_name: []const u8,
@@ -57,4 +22,36 @@ pub fn dom_element_get_attribute(
 
     if (len == 0) return null;
     return text[0..len];
+}
+
+pub fn dom_element_text_content(
+    element: [*c]c.struct_lxb_dom_element,
+) ?[]const u8 {
+    var len: usize = 0;
+    const text = c.lxb_dom_node_text_content(@ptrCast(element), &len);
+
+    if (len == 0) return null;
+    return text[0..len];
+}
+
+pub fn html_document_parse(
+    document: [*c]c.struct_lxb_html_document,
+    text: []const u8,
+) !void {
+    try ok(c.lxb_html_document_parse(document, text.ptr, text.len), error.lxbDocumentParseFail);
+}
+
+pub fn css_selectors_parse(
+    parser: [*c]c.struct_lxb_css_parser,
+    selector: []const u8,
+) [*c]c.lxb_css_selector_list_t {
+    return c.lxb_css_selectors_parse(parser, selector.ptr, selector.len);
+}
+
+pub fn dom_elements_by_tag_name(
+    root: [*c]c.struct_lxb_dom_element,
+    collection: [*c]c.lxb_dom_collection_t,
+    qualified_name: []const u8,
+) !void {
+    try ok(c.lxb_dom_elements_by_tag_name(root, collection, qualified_name.ptr, qualified_name.len), error.lxbElementsByTagNameFail);
 }
